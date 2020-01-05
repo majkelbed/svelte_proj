@@ -1,18 +1,27 @@
 <script>
   import { getUsers } from "./model.js";
-  async function prepUsers() {
+  import { Button, Card } from "sveltestrap";
+  import { onMount, tick } from "svelte";
+  import { writable } from "svelte/store";
+  import User from "./User.svelte";
+
+  let removedUsers = writable([]);
+  let users = writable([]);
+  onMount(async function() {
     const res = await getUsers();
-    const users = await res.json();
-    return users;
+    $users = await res.json();
+  });
+
+  async function removeUser() {
+    $removedUsers = [...$removedUsers, $users.pop()];
+    $users = $users;
   }
 </script>
 
-<div class="user">
-  {#await prepUsers()}
-    <p>...waiting</p>
-  {:then response}
-    <p>The number is {response}</p>
-  {:catch error}
-    <p style="color: red">{error.message}</p>
-  {/await}
-</div>
+<Button on:click={removeUser}>Remove</Button>
+{#each $users as user}
+  <div class="text-primary">{user.name}</div>
+{/each}
+{#each $removedUsers as user}
+  <div class="text-danger">{user.name}</div>
+{/each}

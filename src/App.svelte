@@ -1,8 +1,33 @@
 <script>
-  import Button from "./Button.svelte";
-  import User from "./User.svelte";
+  import Sum from "./components/Sum.svelte";
+  import Users from "./Users.svelte";
   import Data from "./model.js";
   export let name;
+
+  import { writable } from "svelte/store";
+
+  // let prices = writable([
+  //   { price: 2.57, currency: "PLN" },
+  //   { price: 23.57, currency: "PLN" },
+  //   { price: 21.57, currency: "PLN" },
+  //   { price: 123.57, currency: "PLN" },
+  //   { price: 623.57, currency: "PLN" },
+  //   { price: 2.57, currency: "PLN" },
+  //   { price: 4234.57, currency: "PLN" },
+  //   { price: 213.57, currency: "PLN" },
+  //   { price: 12.57, currency: "PLN" }
+  // ]);
+  let prices = [
+    { price: 2.57, currency: "PLN" },
+    { price: 23.57, currency: "PLN" },
+    { price: 21.57, currency: "PLN" },
+    { price: 123.57, currency: "PLN" },
+    { price: 623.57, currency: "PLN" },
+    { price: 2.57, currency: "PLN" },
+    { price: 4234.57, currency: "PLN" },
+    { price: 213.57, currency: "PLN" },
+    { price: 12.57, currency: "PLN" }
+  ];
 </script>
 
 <style>
@@ -27,14 +52,11 @@
   }
 </style>
 
+<svelte:head>
+  <link
+    rel="stylesheet"
+    href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css" />
+</svelte:head>
 <main>
-  <h1>Hello {name}!</h1>
-  {Data()}
-  <User />
-  <Button />
-  <p>
-    Visit the
-    <a href="https://svelte.dev/tutorial">Svelte tutorial</a>
-    to learn how to build Svelte apps.
-  </p>
+  <Sum {prices} />
 </main>
