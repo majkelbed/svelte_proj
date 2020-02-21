@@ -871,8 +871,17 @@ var app = (function () {
     	}
     }
 
+    const target = document.querySelector("#svelte-root");
+    const target2 = document.querySelector("#svelte-root2");
+
     const app = new App({
-      target: document.body,
+      target,
+      props: {
+        name: "michal"
+      }
+    });
+    const app2 = new App({
+      target: target2,
       props: {
         name: "michal"
       }
