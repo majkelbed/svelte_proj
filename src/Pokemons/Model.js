@@ -13,7 +13,7 @@ async function setPokemons(pokemons) {
 
 async function fetchPokemons(
   URL = "https://pokeapi.co/api/v2/pokemon",
-  limit = 5
+  limit = 10
 ) {
   const res = await fetch(`${URL}?limit=${limit}`);
   const pokemons = await res.json();
@@ -28,6 +28,8 @@ export async function addPokemon(pokemon) {
 export async function removePokemon(id) {
   const pokemons = await getPokemons();
   const removed = pokemons.splice(id, 1);
+  console.log(removed, id);
+  console.log(pokemons);
   setPokemons([...pokemons]);
   return removed;
 }

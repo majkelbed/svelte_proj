@@ -4,6 +4,7 @@ var app = (function () {
     'use strict';
 
     function noop() { }
+    const identity = x => x;
     function is_promise(value) {
         return value && typeof value === 'object' && typeof value.then === 'function';
     }
@@ -26,6 +27,41 @@ var app = (function () {
     }
     function safe_not_equal(a, b) {
         return a != a ? b == b : a !== b || ((a && typeof a === 'object') || typeof a === 'function');
+    }
+
+    const is_client = typeof window !== 'undefined';
+    let now = is_client
+        ? () => window.performance.now()
+        : () => Date.now();
+    let raf = is_client ? cb => requestAnimationFrame(cb) : noop;
+
+    const tasks = new Set();
+    function run_tasks(now) {
+        tasks.forEach(task => {
+            if (!task.c(now)) {
+                tasks.delete(task);
+                task.f();
+            }
+        });
+        if (tasks.size !== 0)
+            raf(run_tasks);
+    }
+    /**
+     * Creates a new task that runs on each raf frame
+     * until it returns a falsy value or is aborted
+     */
+    function loop(callback) {
+        let task;
+        if (tasks.size === 0)
+            raf(run_tasks);
+        return {
+            promise: new Promise(fulfill => {
+                tasks.add(task = { c: callback, f: fulfill });
+            }),
+            abort() {
+                tasks.delete(task);
+            }
+        };
     }
 
     function append(target, node) {
@@ -80,6 +116,62 @@ var app = (function () {
         const e = document.createEvent('CustomEvent');
         e.initCustomEvent(type, false, false, detail);
         return e;
+    }
+
+    let stylesheet;
+    let active = 0;
+    let current_rules = {};
+    // https://github.com/darkskyapp/string-hash/blob/master/index.js
+    function hash(str) {
+        let hash = 5381;
+        let i = str.length;
+        while (i--)
+            hash = ((hash << 5) - hash) ^ str.charCodeAt(i);
+        return hash >>> 0;
+    }
+    function create_rule(node, a, b, duration, delay, ease, fn, uid = 0) {
+        const step = 16.666 / duration;
+        let keyframes = '{\n';
+        for (let p = 0; p <= 1; p += step) {
+            const t = a + (b - a) * ease(p);
+            keyframes += p * 100 + `%{${fn(t, 1 - t)}}\n`;
+        }
+        const rule = keyframes + `100% {${fn(b, 1 - b)}}\n}`;
+        const name = `__svelte_${hash(rule)}_${uid}`;
+        if (!current_rules[name]) {
+            if (!stylesheet) {
+                const style = element('style');
+                document.head.appendChild(style);
+                stylesheet = style.sheet;
+            }
+            current_rules[name] = true;
+            stylesheet.insertRule(`@keyframes ${name} ${rule}`, stylesheet.cssRules.length);
+        }
+        const animation = node.style.animation || '';
+        node.style.animation = `${animation ? `${animation}, ` : ``}${name} ${duration}ms linear ${delay}ms 1 both`;
+        active += 1;
+        return name;
+    }
+    function delete_rule(node, name) {
+        node.style.animation = (node.style.animation || '')
+            .split(', ')
+            .filter(name
+            ? anim => anim.indexOf(name) < 0 // remove specific animation
+            : anim => anim.indexOf('__svelte') === -1 // remove all Svelte animations
+        )
+            .join(', ');
+        if (name && !--active)
+            clear_rules();
+    }
+    function clear_rules() {
+        raf(() => {
+            if (active)
+                return;
+            let i = stylesheet.cssRules.length;
+            while (i--)
+                stylesheet.deleteRule(i);
+            current_rules = {};
+        });
     }
 
     let current_component;
@@ -147,6 +239,20 @@ var app = (function () {
             $$.after_update.forEach(add_render_callback);
         }
     }
+
+    let promise;
+    function wait() {
+        if (!promise) {
+            promise = Promise.resolve();
+            promise.then(() => {
+                promise = null;
+            });
+        }
+        return promise;
+    }
+    function dispatch(node, direction, kind) {
+        node.dispatchEvent(custom_event(`${direction ? 'intro' : 'outro'}${kind}`));
+    }
     const outroing = new Set();
     let outros;
     function group_outros() {
@@ -183,6 +289,125 @@ var app = (function () {
             });
             block.o(local);
         }
+    }
+    const null_transition = { duration: 0 };
+    function create_in_transition(node, fn, params) {
+        let config = fn(node, params);
+        let running = false;
+        let animation_name;
+        let task;
+        let uid = 0;
+        function cleanup() {
+            if (animation_name)
+                delete_rule(node, animation_name);
+        }
+        function go() {
+            const { delay = 0, duration = 300, easing = identity, tick = noop, css } = config || null_transition;
+            if (css)
+                animation_name = create_rule(node, 0, 1, duration, delay, easing, css, uid++);
+            tick(0, 1);
+            const start_time = now() + delay;
+            const end_time = start_time + duration;
+            if (task)
+                task.abort();
+            running = true;
+            add_render_callback(() => dispatch(node, true, 'start'));
+            task = loop(now => {
+                if (running) {
+                    if (now >= end_time) {
+                        tick(1, 0);
+                        dispatch(node, true, 'end');
+                        cleanup();
+                        return running = false;
+                    }
+                    if (now >= start_time) {
+                        const t = easing((now - start_time) / duration);
+                        tick(t, 1 - t);
+                    }
+                }
+                return running;
+            });
+        }
+        let started = false;
+        return {
+            start() {
+                if (started)
+                    return;
+                delete_rule(node);
+                if (is_function(config)) {
+                    config = config();
+                    wait().then(go);
+                }
+                else {
+                    go();
+                }
+            },
+            invalidate() {
+                started = false;
+            },
+            end() {
+                if (running) {
+                    cleanup();
+                    running = false;
+                }
+            }
+        };
+    }
+    function create_out_transition(node, fn, params) {
+        let config = fn(node, params);
+        let running = true;
+        let animation_name;
+        const group = outros;
+        group.r += 1;
+        function go() {
+            const { delay = 0, duration = 300, easing = identity, tick = noop, css } = config || null_transition;
+            if (css)
+                animation_name = create_rule(node, 1, 0, duration, delay, easing, css);
+            const start_time = now() + delay;
+            const end_time = start_time + duration;
+            add_render_callback(() => dispatch(node, false, 'start'));
+            loop(now => {
+                if (running) {
+                    if (now >= end_time) {
+                        tick(0, 1);
+                        dispatch(node, false, 'end');
+                        if (!--group.r) {
+                            // this will result in `end()` being called,
+                            // so we don't need to clean up here
+                            run_all(group.c);
+                        }
+                        return false;
+                    }
+                    if (now >= start_time) {
+                        const t = easing((now - start_time) / duration);
+                        tick(1 - t, t);
+                    }
+                }
+                return running;
+            });
+        }
+        if (is_function(config)) {
+            wait().then(() => {
+                // @ts-ignore
+                config = config();
+                go();
+            });
+        }
+        else {
+            go();
+        }
+        return {
+            end(reset) {
+                if (reset && config.tick) {
+                    config.tick(1, 0);
+                }
+                if (running) {
+                    if (animation_name)
+                        delete_rule(node, animation_name);
+                    running = false;
+                }
+            }
+        };
     }
 
     function handle_promise(promise, info) {
@@ -249,6 +474,86 @@ var app = (function () {
             }
             info.resolved = promise;
         }
+    }
+    function outro_and_destroy_block(block, lookup) {
+        transition_out(block, 1, 1, () => {
+            lookup.delete(block.key);
+        });
+    }
+    function update_keyed_each(old_blocks, dirty, get_key, dynamic, ctx, list, lookup, node, destroy, create_each_block, next, get_context) {
+        let o = old_blocks.length;
+        let n = list.length;
+        let i = o;
+        const old_indexes = {};
+        while (i--)
+            old_indexes[old_blocks[i].key] = i;
+        const new_blocks = [];
+        const new_lookup = new Map();
+        const deltas = new Map();
+        i = n;
+        while (i--) {
+            const child_ctx = get_context(ctx, list, i);
+            const key = get_key(child_ctx);
+            let block = lookup.get(key);
+            if (!block) {
+                block = create_each_block(key, child_ctx);
+                block.c();
+            }
+            else if (dynamic) {
+                block.p(child_ctx, dirty);
+            }
+            new_lookup.set(key, new_blocks[i] = block);
+            if (key in old_indexes)
+                deltas.set(key, Math.abs(i - old_indexes[key]));
+        }
+        const will_move = new Set();
+        const did_move = new Set();
+        function insert(block) {
+            transition_in(block, 1);
+            block.m(node, next);
+            lookup.set(block.key, block);
+            next = block.first;
+            n--;
+        }
+        while (o && n) {
+            const new_block = new_blocks[n - 1];
+            const old_block = old_blocks[o - 1];
+            const new_key = new_block.key;
+            const old_key = old_block.key;
+            if (new_block === old_block) {
+                // do nothing
+                next = new_block.first;
+                o--;
+                n--;
+            }
+            else if (!new_lookup.has(old_key)) {
+                // remove old block
+                destroy(old_block, lookup);
+                o--;
+            }
+            else if (!lookup.has(new_key) || will_move.has(new_key)) {
+                insert(new_block);
+            }
+            else if (did_move.has(old_key)) {
+                o--;
+            }
+            else if (deltas.get(new_key) > deltas.get(old_key)) {
+                did_move.add(new_key);
+                insert(new_block);
+            }
+            else {
+                will_move.add(old_key);
+                o--;
+            }
+        }
+        while (o--) {
+            const old_block = old_blocks[o];
+            if (!new_lookup.has(old_block.key))
+                destroy(old_block, lookup);
+        }
+        while (n)
+            insert(new_blocks[n - 1]);
+        return new_blocks;
     }
     function create_component(block) {
         block && block.c();
@@ -436,7 +741,7 @@ var app = (function () {
 
     async function fetchPokemons(
       URL = "https://pokeapi.co/api/v2/pokemon",
-      limit = 5
+      limit = 10
     ) {
       const res = await fetch(`${URL}?limit=${limit}`);
       const pokemons = await res.json();
@@ -451,8 +756,20 @@ var app = (function () {
     async function removePokemon(id) {
       const pokemons = await getPokemons();
       const removed = pokemons.splice(id, 1);
+      console.log(removed, id);
+      console.log(pokemons);
       setPokemons([...pokemons]);
       return removed;
+    }
+
+    function fade(node, { delay = 0, duration = 400, easing = identity }) {
+        const o = +getComputedStyle(node).opacity;
+        return {
+            delay,
+            duration,
+            easing,
+            css: t => `opacity: ${t * o}`
+        };
     }
 
     async function getDetails(data) {
@@ -468,22 +785,29 @@ var app = (function () {
     /* src\Pokemon\Pokemon.svelte generated by Svelte v3.16.7 */
     const file = "src\\Pokemon\\Pokemon.svelte";
 
-    // (1:0) <script>    import { getDetails }
+    // (1:0) <script>    import { fade }
     function create_catch_block(ctx) {
-    	const block = { c: noop, m: noop, p: noop, d: noop };
+    	const block = {
+    		c: noop,
+    		m: noop,
+    		p: noop,
+    		i: noop,
+    		o: noop,
+    		d: noop
+    	};
 
     	dispatch_dev("SvelteRegisterBlock", {
     		block,
     		id: create_catch_block.name,
     		type: "catch",
-    		source: "(1:0) <script>    import { getDetails }",
+    		source: "(1:0) <script>    import { fade }",
     		ctx
     	});
 
     	return block;
     }
 
-    // (7:26)     <!-- {#each Object.entries(info) as [key, value]}
+    // (9:26)     <div out:fade class="card w-100" in:fade>      <div class="card-header">        <h5 class="card-title">{info.name}
     function create_then_block(ctx) {
     	let div2;
     	let div0;
@@ -496,6 +820,9 @@ var app = (function () {
     	let t2;
     	let t3_value = /*info*/ ctx[2].weight + "";
     	let t3;
+    	let div2_intro;
+    	let div2_outro;
+    	let current;
 
     	const block = {
     		c: function create() {
@@ -509,14 +836,14 @@ var app = (function () {
     			t2 = text("weight: ");
     			t3 = text(t3_value);
     			attr_dev(h5, "class", "card-title");
-    			add_location(h5, file, 13, 6, 351);
+    			add_location(h5, file, 11, 6, 311);
     			attr_dev(div0, "class", "card-header");
-    			add_location(div0, file, 12, 4, 318);
-    			add_location(span, file, 16, 6, 439);
+    			add_location(div0, file, 10, 4, 278);
+    			add_location(span, file, 14, 6, 399);
     			attr_dev(div1, "class", "card-body");
-    			add_location(div1, file, 15, 4, 408);
+    			add_location(div1, file, 13, 4, 368);
     			attr_dev(div2, "class", "card w-100");
-    			add_location(div2, file, 11, 2, 288);
+    			add_location(div2, file, 9, 2, 231);
     		},
     		m: function mount(target, anchor) {
     			insert_dev(target, div2, anchor);
@@ -528,10 +855,28 @@ var app = (function () {
     			append_dev(div1, span);
     			append_dev(span, t2);
     			append_dev(span, t3);
+    			current = true;
     		},
     		p: noop,
+    		i: function intro(local) {
+    			if (current) return;
+
+    			add_render_callback(() => {
+    				if (div2_outro) div2_outro.end(1);
+    				if (!div2_intro) div2_intro = create_in_transition(div2, fade, {});
+    				div2_intro.start();
+    			});
+
+    			current = true;
+    		},
+    		o: function outro(local) {
+    			if (div2_intro) div2_intro.invalidate();
+    			div2_outro = create_out_transition(div2, fade, {});
+    			current = false;
+    		},
     		d: function destroy(detaching) {
     			if (detaching) detach_dev(div2);
+    			if (detaching && div2_outro) div2_outro.end();
     		}
     	};
 
@@ -539,22 +884,29 @@ var app = (function () {
     		block,
     		id: create_then_block.name,
     		type: "then",
-    		source: "(7:26)     <!-- {#each Object.entries(info) as [key, value]}",
+    		source: "(9:26)     <div out:fade class=\\\"card w-100\\\" in:fade>      <div class=\\\"card-header\\\">        <h5 class=\\\"card-title\\\">{info.name}",
     		ctx
     	});
 
     	return block;
     }
 
-    // (1:0) <script>    import { getDetails }
+    // (1:0) <script>    import { fade }
     function create_pending_block(ctx) {
-    	const block = { c: noop, m: noop, p: noop, d: noop };
+    	const block = {
+    		c: noop,
+    		m: noop,
+    		p: noop,
+    		i: noop,
+    		o: noop,
+    		d: noop
+    	};
 
     	dispatch_dev("SvelteRegisterBlock", {
     		block,
     		id: create_pending_block.name,
     		type: "pending",
-    		source: "(1:0) <script>    import { getDetails }",
+    		source: "(1:0) <script>    import { fade }",
     		ctx
     	});
 
@@ -564,6 +916,7 @@ var app = (function () {
     function create_fragment(ctx) {
     	let await_block_anchor;
     	let promise;
+    	let current;
 
     	let info = {
     		ctx,
@@ -572,7 +925,8 @@ var app = (function () {
     		pending: create_pending_block,
     		then: create_then_block,
     		catch: create_catch_block,
-    		value: 2
+    		value: 2,
+    		blocks: [,,,]
     	};
 
     	handle_promise(promise = /*details*/ ctx[0], info);
@@ -590,6 +944,7 @@ var app = (function () {
     			info.block.m(target, info.anchor = anchor);
     			info.mount = () => await_block_anchor.parentNode;
     			info.anchor = await_block_anchor;
+    			current = true;
     		},
     		p: function update(new_ctx, [dirty]) {
     			ctx = new_ctx;
@@ -600,8 +955,19 @@ var app = (function () {
     				info.block.p(child_ctx, dirty);
     			}
     		},
-    		i: noop,
-    		o: noop,
+    		i: function intro(local) {
+    			if (current) return;
+    			transition_in(info.block);
+    			current = true;
+    		},
+    		o: function outro(local) {
+    			for (let i = 0; i < 3; i += 1) {
+    				const block = info.blocks[i];
+    				transition_out(block);
+    			}
+
+    			current = false;
+    		},
     		d: function destroy(detaching) {
     			if (detaching) detach_dev(await_block_anchor);
     			info.block.d(detaching);
@@ -684,14 +1050,12 @@ var app = (function () {
     	return child_ctx;
     }
 
-    // (26:2) {#each pokemons as pokemon, index}
-    function create_each_block(ctx) {
-    	let t0;
-    	let t1;
+    // (26:2) {#each pokemons as pokemon, index (pokemon.name)}
+    function create_each_block(key_1, ctx) {
     	let div;
     	let button;
-    	let t3;
-    	let t4;
+    	let t1;
+    	let t2;
     	let current;
     	let dispose;
 
@@ -705,29 +1069,28 @@ var app = (function () {
     		});
 
     	const block = {
+    		key: key_1,
+    		first: null,
     		c: function create() {
-    			t0 = text(/*index*/ ctx[10]);
-    			t1 = space();
     			div = element("div");
     			button = element("button");
     			button.textContent = "Usuń";
-    			t3 = space();
+    			t1 = space();
     			create_component(pokemon.$$.fragment);
-    			t4 = space();
+    			t2 = space();
     			attr_dev(button, "class", "btn btn-danger mr-2");
-    			add_location(button, file$1, 28, 6, 665);
-    			attr_dev(div, "class", "d-flex align-items-center");
-    			add_location(div, file$1, 27, 4, 618);
+    			add_location(button, file$1, 27, 6, 685);
+    			attr_dev(div, "class", "d-flex align-items-center py-1");
+    			add_location(div, file$1, 26, 4, 633);
     			dispose = listen_dev(button, "click", click_handler, false, false, false);
+    			this.first = div;
     		},
     		m: function mount(target, anchor) {
-    			insert_dev(target, t0, anchor);
-    			insert_dev(target, t1, anchor);
     			insert_dev(target, div, anchor);
     			append_dev(div, button);
-    			append_dev(div, t3);
+    			append_dev(div, t1);
     			mount_component(pokemon, div, null);
-    			append_dev(div, t4);
+    			append_dev(div, t2);
     			current = true;
     		},
     		p: function update(new_ctx, dirty) {
@@ -746,8 +1109,6 @@ var app = (function () {
     			current = false;
     		},
     		d: function destroy(detaching) {
-    			if (detaching) detach_dev(t0);
-    			if (detaching) detach_dev(t1);
     			if (detaching) detach_dev(div);
     			destroy_component(pokemon);
     			dispose();
@@ -758,7 +1119,7 @@ var app = (function () {
     		block,
     		id: create_each_block.name,
     		type: "each",
-    		source: "(26:2) {#each pokemons as pokemon, index}",
+    		source: "(26:2) {#each pokemons as pokemon, index (pokemon.name)}",
     		ctx
     	});
 
@@ -767,6 +1128,8 @@ var app = (function () {
 
     function create_fragment$1(ctx) {
     	let div0;
+    	let each_blocks = [];
+    	let each_1_lookup = new Map();
     	let t0;
     	let div1;
     	let t1;
@@ -779,15 +1142,13 @@ var app = (function () {
     	let current;
     	let dispose;
     	let each_value = /*pokemons*/ ctx[0];
-    	let each_blocks = [];
+    	const get_key = ctx => /*pokemon*/ ctx[8].name;
 
     	for (let i = 0; i < each_value.length; i += 1) {
-    		each_blocks[i] = create_each_block(get_each_context(ctx, each_value, i));
+    		let child_ctx = get_each_context(ctx, each_value, i);
+    		let key = get_key(child_ctx);
+    		each_1_lookup.set(key, each_blocks[i] = create_each_block(key, child_ctx));
     	}
-
-    	const out = i => transition_out(each_blocks[i], 1, 1, () => {
-    		each_blocks[i] = null;
-    	});
 
     	function input1_input_handler() {
     		input1_updating = true;
@@ -811,13 +1172,14 @@ var app = (function () {
     			t3 = space();
     			button = element("button");
     			button.textContent = "Add pokemon";
+    			attr_dev(div0, "class", "py-1");
     			add_location(div0, file$1, 24, 0, 556);
     			attr_dev(input0, "type", "text");
-    			add_location(input0, file$1, 37, 2, 850);
+    			add_location(input0, file$1, 36, 2, 870);
     			attr_dev(input1, "type", "number");
-    			add_location(input1, file$1, 39, 2, 904);
-    			add_location(button, file$1, 40, 2, 951);
-    			add_location(div1, file$1, 35, 0, 832);
+    			add_location(input1, file$1, 38, 2, 924);
+    			add_location(button, file$1, 39, 2, 971);
+    			add_location(div1, file$1, 34, 0, 852);
 
     			dispose = [
     				listen_dev(input0, "input", /*input0_input_handler*/ ctx[6]),
@@ -848,32 +1210,10 @@ var app = (function () {
     			current = true;
     		},
     		p: function update(ctx, [dirty]) {
-    			if (dirty & /*pokemons, removePokemon*/ 17) {
-    				each_value = /*pokemons*/ ctx[0];
-    				let i;
-
-    				for (i = 0; i < each_value.length; i += 1) {
-    					const child_ctx = get_each_context(ctx, each_value, i);
-
-    					if (each_blocks[i]) {
-    						each_blocks[i].p(child_ctx, dirty);
-    						transition_in(each_blocks[i], 1);
-    					} else {
-    						each_blocks[i] = create_each_block(child_ctx);
-    						each_blocks[i].c();
-    						transition_in(each_blocks[i], 1);
-    						each_blocks[i].m(div0, null);
-    					}
-    				}
-
-    				group_outros();
-
-    				for (i = each_value.length; i < each_blocks.length; i += 1) {
-    					out(i);
-    				}
-
-    				check_outros();
-    			}
+    			const each_value = /*pokemons*/ ctx[0];
+    			group_outros();
+    			each_blocks = update_keyed_each(each_blocks, dirty, get_key, 1, ctx, each_value, each_1_lookup, div0, outro_and_destroy_block, create_each_block, null, get_each_context);
+    			check_outros();
 
     			if (dirty & /*name*/ 2 && input0.value !== /*name*/ ctx[1]) {
     				set_input_value(input0, /*name*/ ctx[1]);
@@ -895,8 +1235,6 @@ var app = (function () {
     			current = true;
     		},
     		o: function outro(local) {
-    			each_blocks = each_blocks.filter(Boolean);
-
     			for (let i = 0; i < each_blocks.length; i += 1) {
     				transition_out(each_blocks[i]);
     			}
@@ -905,7 +1243,11 @@ var app = (function () {
     		},
     		d: function destroy(detaching) {
     			if (detaching) detach_dev(div0);
-    			destroy_each(each_blocks, detaching);
+
+    			for (let i = 0; i < each_blocks.length; i += 1) {
+    				each_blocks[i].d();
+    			}
+
     			if (detaching) detach_dev(t0);
     			if (detaching) detach_dev(div1);
     			run_all(dispose);
@@ -1113,17 +1455,280 @@ var app = (function () {
     	}
     }
 
+    /* src\Users\Users.svelte generated by Svelte v3.16.7 */
+
+    const file$3 = "src\\Users\\Users.svelte";
+
+    function get_each_context$1(ctx, list, i) {
+    	const child_ctx = ctx.slice();
+    	child_ctx[6] = list[i];
+    	return child_ctx;
+    }
+
+    // (12:0) {#each users as user}
+    function create_each_block$1(ctx) {
+    	let div;
+    	let span0;
+    	let t0_value = /*user*/ ctx[6].email + "";
+    	let t0;
+    	let t1;
+    	let span1;
+    	let t2_value = /*user*/ ctx[6].name + "";
+    	let t2;
+
+    	const block = {
+    		c: function create() {
+    			div = element("div");
+    			span0 = element("span");
+    			t0 = text(t0_value);
+    			t1 = space();
+    			span1 = element("span");
+    			t2 = text(t2_value);
+    			add_location(span0, file$3, 13, 4, 207);
+    			attr_dev(span1, "class", "ml-2");
+    			add_location(span1, file$3, 14, 4, 238);
+    			add_location(div, file$3, 12, 2, 196);
+    		},
+    		m: function mount(target, anchor) {
+    			insert_dev(target, div, anchor);
+    			append_dev(div, span0);
+    			append_dev(span0, t0);
+    			append_dev(div, t1);
+    			append_dev(div, span1);
+    			append_dev(span1, t2);
+    		},
+    		p: function update(ctx, dirty) {
+    			if (dirty & /*users*/ 1 && t0_value !== (t0_value = /*user*/ ctx[6].email + "")) set_data_dev(t0, t0_value);
+    			if (dirty & /*users*/ 1 && t2_value !== (t2_value = /*user*/ ctx[6].name + "")) set_data_dev(t2, t2_value);
+    		},
+    		d: function destroy(detaching) {
+    			if (detaching) detach_dev(div);
+    		}
+    	};
+
+    	dispatch_dev("SvelteRegisterBlock", {
+    		block,
+    		id: create_each_block$1.name,
+    		type: "each",
+    		source: "(12:0) {#each users as user}",
+    		ctx
+    	});
+
+    	return block;
+    }
+
+    function create_fragment$3(ctx) {
+    	let t0;
+    	let div;
+    	let input0;
+    	let t1;
+    	let input1;
+    	let t2;
+    	let button;
+    	let dispose;
+    	let each_value = /*users*/ ctx[0];
+    	let each_blocks = [];
+
+    	for (let i = 0; i < each_value.length; i += 1) {
+    		each_blocks[i] = create_each_block$1(get_each_context$1(ctx, each_value, i));
+    	}
+
+    	const block = {
+    		c: function create() {
+    			for (let i = 0; i < each_blocks.length; i += 1) {
+    				each_blocks[i].c();
+    			}
+
+    			t0 = space();
+    			div = element("div");
+    			input0 = element("input");
+    			t1 = space();
+    			input1 = element("input");
+    			t2 = space();
+    			button = element("button");
+    			button.textContent = "Dodaj";
+    			attr_dev(input0, "type", "text");
+    			add_location(input0, file$3, 18, 2, 305);
+    			attr_dev(input1, "type", "text");
+    			add_location(input1, file$3, 19, 2, 349);
+    			add_location(button, file$3, 20, 2, 392);
+    			add_location(div, file$3, 17, 0, 296);
+
+    			dispose = [
+    				listen_dev(input0, "input", /*input0_input_handler*/ ctx[4]),
+    				listen_dev(input1, "input", /*input1_input_handler*/ ctx[5]),
+    				listen_dev(button, "click", /*add*/ ctx[3], false, false, false)
+    			];
+    		},
+    		l: function claim(nodes) {
+    			throw new Error("options.hydrate only works if the component was compiled with the `hydratable: true` option");
+    		},
+    		m: function mount(target, anchor) {
+    			for (let i = 0; i < each_blocks.length; i += 1) {
+    				each_blocks[i].m(target, anchor);
+    			}
+
+    			insert_dev(target, t0, anchor);
+    			insert_dev(target, div, anchor);
+    			append_dev(div, input0);
+    			set_input_value(input0, /*email*/ ctx[2]);
+    			append_dev(div, t1);
+    			append_dev(div, input1);
+    			set_input_value(input1, /*name*/ ctx[1]);
+    			append_dev(div, t2);
+    			append_dev(div, button);
+    		},
+    		p: function update(ctx, [dirty]) {
+    			if (dirty & /*users*/ 1) {
+    				each_value = /*users*/ ctx[0];
+    				let i;
+
+    				for (i = 0; i < each_value.length; i += 1) {
+    					const child_ctx = get_each_context$1(ctx, each_value, i);
+
+    					if (each_blocks[i]) {
+    						each_blocks[i].p(child_ctx, dirty);
+    					} else {
+    						each_blocks[i] = create_each_block$1(child_ctx);
+    						each_blocks[i].c();
+    						each_blocks[i].m(t0.parentNode, t0);
+    					}
+    				}
+
+    				for (; i < each_blocks.length; i += 1) {
+    					each_blocks[i].d(1);
+    				}
+
+    				each_blocks.length = each_value.length;
+    			}
+
+    			if (dirty & /*email*/ 4 && input0.value !== /*email*/ ctx[2]) {
+    				set_input_value(input0, /*email*/ ctx[2]);
+    			}
+
+    			if (dirty & /*name*/ 2 && input1.value !== /*name*/ ctx[1]) {
+    				set_input_value(input1, /*name*/ ctx[1]);
+    			}
+    		},
+    		i: noop,
+    		o: noop,
+    		d: function destroy(detaching) {
+    			destroy_each(each_blocks, detaching);
+    			if (detaching) detach_dev(t0);
+    			if (detaching) detach_dev(div);
+    			run_all(dispose);
+    		}
+    	};
+
+    	dispatch_dev("SvelteRegisterBlock", {
+    		block,
+    		id: create_fragment$3.name,
+    		type: "component",
+    		source: "",
+    		ctx
+    	});
+
+    	return block;
+    }
+
+    function instance$3($$self, $$props, $$invalidate) {
+    	let { users } = $$props;
+    	let name;
+    	let email;
+
+    	function add() {
+    		$$invalidate(0, users = [...users, { name, email }]);
+    		$$invalidate(1, name = "");
+    		$$invalidate(2, email = "");
+    	}
+
+    	const writable_props = ["users"];
+
+    	Object.keys($$props).forEach(key => {
+    		if (!~writable_props.indexOf(key) && key.slice(0, 2) !== "$$") console.warn(`<Users> was created with unknown prop '${key}'`);
+    	});
+
+    	function input0_input_handler() {
+    		email = this.value;
+    		$$invalidate(2, email);
+    	}
+
+    	function input1_input_handler() {
+    		name = this.value;
+    		$$invalidate(1, name);
+    	}
+
+    	$$self.$set = $$props => {
+    		if ("users" in $$props) $$invalidate(0, users = $$props.users);
+    	};
+
+    	$$self.$capture_state = () => {
+    		return { users, name, email };
+    	};
+
+    	$$self.$inject_state = $$props => {
+    		if ("users" in $$props) $$invalidate(0, users = $$props.users);
+    		if ("name" in $$props) $$invalidate(1, name = $$props.name);
+    		if ("email" in $$props) $$invalidate(2, email = $$props.email);
+    	};
+
+    	return [users, name, email, add, input0_input_handler, input1_input_handler];
+    }
+
+    class Users extends SvelteComponentDev {
+    	constructor(options) {
+    		super(options);
+    		init(this, options, instance$3, create_fragment$3, safe_not_equal, { users: 0 });
+
+    		dispatch_dev("SvelteRegisterComponent", {
+    			component: this,
+    			tagName: "Users",
+    			options,
+    			id: create_fragment$3.name
+    		});
+
+    		const { ctx } = this.$$;
+    		const props = options.props || ({});
+
+    		if (/*users*/ ctx[0] === undefined && !("users" in props)) {
+    			console.warn("<Users> was created without expected prop 'users'");
+    		}
+    	}
+
+    	get users() {
+    		throw new Error("<Users>: Props cannot be read directly from the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
+    	}
+
+    	set users(value) {
+    		throw new Error("<Users>: Props cannot be set directly on the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
+    	}
+    }
+
     const root = document.querySelector("#svelte-root");
     const anchor = document.querySelector("#anchor");
     const props = {
       mod: "passed mod"
     };
 
+    const usersRoot = document.querySelector("#users");
+
     const app = new App({
       target: root,
       anchor,
       props
     });
+
+    fetch("https://jsonplaceholder.typicode.com/users")
+      .then((response) => response.json())
+      .then((json) => {
+        const props = {
+          users: json
+        };
+        const users = new Users({
+          target: usersRoot,
+          props
+        });
+      });
 
     return app;
 

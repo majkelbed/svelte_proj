@@ -22,10 +22,9 @@
   }
 </script>
 
-<div>
-  {#each pokemons as pokemon, index}
-    {index}
-    <div class="d-flex align-items-center">
+<div class="py-1">
+  {#each pokemons as pokemon, index (pokemon.name)}
+    <div class="d-flex align-items-center py-1">
       <button on:click={() => removePokemon(index)} class="btn btn-danger mr-2">
         Usuń
       </button>

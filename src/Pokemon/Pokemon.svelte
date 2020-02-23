@@ -1,15 +1,13 @@
 <script>
+  import { fade } from "svelte/transition";
   import { getDetails } from "./Model.js";
   export let pokemon;
   const details = getDetails(pokemon);
+  const fadeOut = false;
 </script>
 
 {#await details then info}
-  <!-- {#each Object.entries(info) as [key, value]}
-    {console.log(key, '?', value)}
-    <div>{value}</div>
-  {/each} -->
-  <div class="card w-100">
+  <div out:fade class="card w-100" in:fade>
     <div class="card-header">
       <h5 class="card-title">{info.name}</h5>
     </div>
