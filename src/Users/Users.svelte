@@ -11,12 +11,12 @@
 
 {#each users as user}
   <div>
-    <span>{user.email}</span>
+    <a href="/users?id={user.id}">{user.email}</a>
     <span class="ml-2">{user.name}</span>
   </div>
 {/each}
-<div>
+<!-- <div>
   <input type="text" bind:value={email} />
   <input type="text" bind:value={name} />
   <button on:click={add}>Dodaj</button>
-</div>
+</div> -->

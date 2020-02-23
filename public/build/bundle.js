@@ -1461,45 +1461,55 @@ var app = (function () {
 
     function get_each_context$1(ctx, list, i) {
     	const child_ctx = ctx.slice();
-    	child_ctx[6] = list[i];
+    	child_ctx[4] = list[i];
     	return child_ctx;
     }
 
     // (12:0) {#each users as user}
     function create_each_block$1(ctx) {
     	let div;
-    	let span0;
-    	let t0_value = /*user*/ ctx[6].email + "";
+    	let a;
+    	let t0_value = /*user*/ ctx[4].email + "";
     	let t0;
+    	let a_href_value;
     	let t1;
-    	let span1;
-    	let t2_value = /*user*/ ctx[6].name + "";
+    	let span;
+    	let t2_value = /*user*/ ctx[4].name + "";
     	let t2;
+    	let t3;
 
     	const block = {
     		c: function create() {
     			div = element("div");
-    			span0 = element("span");
+    			a = element("a");
     			t0 = text(t0_value);
     			t1 = space();
-    			span1 = element("span");
+    			span = element("span");
     			t2 = text(t2_value);
-    			add_location(span0, file$3, 13, 4, 207);
-    			attr_dev(span1, "class", "ml-2");
-    			add_location(span1, file$3, 14, 4, 238);
+    			t3 = space();
+    			attr_dev(a, "href", a_href_value = "/users?id=" + /*user*/ ctx[4].id);
+    			add_location(a, file$3, 13, 4, 207);
+    			attr_dev(span, "class", "ml-2");
+    			add_location(span, file$3, 14, 4, 259);
     			add_location(div, file$3, 12, 2, 196);
     		},
     		m: function mount(target, anchor) {
     			insert_dev(target, div, anchor);
-    			append_dev(div, span0);
-    			append_dev(span0, t0);
+    			append_dev(div, a);
+    			append_dev(a, t0);
     			append_dev(div, t1);
-    			append_dev(div, span1);
-    			append_dev(span1, t2);
+    			append_dev(div, span);
+    			append_dev(span, t2);
+    			append_dev(div, t3);
     		},
     		p: function update(ctx, dirty) {
-    			if (dirty & /*users*/ 1 && t0_value !== (t0_value = /*user*/ ctx[6].email + "")) set_data_dev(t0, t0_value);
-    			if (dirty & /*users*/ 1 && t2_value !== (t2_value = /*user*/ ctx[6].name + "")) set_data_dev(t2, t2_value);
+    			if (dirty & /*users*/ 1 && t0_value !== (t0_value = /*user*/ ctx[4].email + "")) set_data_dev(t0, t0_value);
+
+    			if (dirty & /*users*/ 1 && a_href_value !== (a_href_value = "/users?id=" + /*user*/ ctx[4].id)) {
+    				attr_dev(a, "href", a_href_value);
+    			}
+
+    			if (dirty & /*users*/ 1 && t2_value !== (t2_value = /*user*/ ctx[4].name + "")) set_data_dev(t2, t2_value);
     		},
     		d: function destroy(detaching) {
     			if (detaching) detach_dev(div);
@@ -1518,14 +1528,7 @@ var app = (function () {
     }
 
     function create_fragment$3(ctx) {
-    	let t0;
-    	let div;
-    	let input0;
-    	let t1;
-    	let input1;
-    	let t2;
-    	let button;
-    	let dispose;
+    	let each_1_anchor;
     	let each_value = /*users*/ ctx[0];
     	let each_blocks = [];
 
@@ -1539,26 +1542,7 @@ var app = (function () {
     				each_blocks[i].c();
     			}
 
-    			t0 = space();
-    			div = element("div");
-    			input0 = element("input");
-    			t1 = space();
-    			input1 = element("input");
-    			t2 = space();
-    			button = element("button");
-    			button.textContent = "Dodaj";
-    			attr_dev(input0, "type", "text");
-    			add_location(input0, file$3, 18, 2, 305);
-    			attr_dev(input1, "type", "text");
-    			add_location(input1, file$3, 19, 2, 349);
-    			add_location(button, file$3, 20, 2, 392);
-    			add_location(div, file$3, 17, 0, 296);
-
-    			dispose = [
-    				listen_dev(input0, "input", /*input0_input_handler*/ ctx[4]),
-    				listen_dev(input1, "input", /*input1_input_handler*/ ctx[5]),
-    				listen_dev(button, "click", /*add*/ ctx[3], false, false, false)
-    			];
+    			each_1_anchor = empty();
     		},
     		l: function claim(nodes) {
     			throw new Error("options.hydrate only works if the component was compiled with the `hydratable: true` option");
@@ -1568,15 +1552,7 @@ var app = (function () {
     				each_blocks[i].m(target, anchor);
     			}
 
-    			insert_dev(target, t0, anchor);
-    			insert_dev(target, div, anchor);
-    			append_dev(div, input0);
-    			set_input_value(input0, /*email*/ ctx[2]);
-    			append_dev(div, t1);
-    			append_dev(div, input1);
-    			set_input_value(input1, /*name*/ ctx[1]);
-    			append_dev(div, t2);
-    			append_dev(div, button);
+    			insert_dev(target, each_1_anchor, anchor);
     		},
     		p: function update(ctx, [dirty]) {
     			if (dirty & /*users*/ 1) {
@@ -1591,7 +1567,7 @@ var app = (function () {
     					} else {
     						each_blocks[i] = create_each_block$1(child_ctx);
     						each_blocks[i].c();
-    						each_blocks[i].m(t0.parentNode, t0);
+    						each_blocks[i].m(each_1_anchor.parentNode, each_1_anchor);
     					}
     				}
 
@@ -1601,22 +1577,12 @@ var app = (function () {
 
     				each_blocks.length = each_value.length;
     			}
-
-    			if (dirty & /*email*/ 4 && input0.value !== /*email*/ ctx[2]) {
-    				set_input_value(input0, /*email*/ ctx[2]);
-    			}
-
-    			if (dirty & /*name*/ 2 && input1.value !== /*name*/ ctx[1]) {
-    				set_input_value(input1, /*name*/ ctx[1]);
-    			}
     		},
     		i: noop,
     		o: noop,
     		d: function destroy(detaching) {
     			destroy_each(each_blocks, detaching);
-    			if (detaching) detach_dev(t0);
-    			if (detaching) detach_dev(div);
-    			run_all(dispose);
+    			if (detaching) detach_dev(each_1_anchor);
     		}
     	};
 
@@ -1636,27 +1602,11 @@ var app = (function () {
     	let name;
     	let email;
 
-    	function add() {
-    		$$invalidate(0, users = [...users, { name, email }]);
-    		$$invalidate(1, name = "");
-    		$$invalidate(2, email = "");
-    	}
-
     	const writable_props = ["users"];
 
     	Object.keys($$props).forEach(key => {
     		if (!~writable_props.indexOf(key) && key.slice(0, 2) !== "$$") console.warn(`<Users> was created with unknown prop '${key}'`);
     	});
-
-    	function input0_input_handler() {
-    		email = this.value;
-    		$$invalidate(2, email);
-    	}
-
-    	function input1_input_handler() {
-    		name = this.value;
-    		$$invalidate(1, name);
-    	}
 
     	$$self.$set = $$props => {
     		if ("users" in $$props) $$invalidate(0, users = $$props.users);
@@ -1668,11 +1618,11 @@ var app = (function () {
 
     	$$self.$inject_state = $$props => {
     		if ("users" in $$props) $$invalidate(0, users = $$props.users);
-    		if ("name" in $$props) $$invalidate(1, name = $$props.name);
-    		if ("email" in $$props) $$invalidate(2, email = $$props.email);
+    		if ("name" in $$props) name = $$props.name;
+    		if ("email" in $$props) email = $$props.email;
     	};
 
-    	return [users, name, email, add, input0_input_handler, input1_input_handler];
+    	return [users];
     }
 
     class Users extends SvelteComponentDev {
@@ -1704,31 +1654,166 @@ var app = (function () {
     	}
     }
 
-    const root = document.querySelector("#svelte-root");
-    const anchor = document.querySelector("#anchor");
-    const props = {
-      mod: "passed mod"
-    };
+    /* src\User\User.svelte generated by Svelte v3.16.7 */
 
-    const usersRoot = document.querySelector("#users");
+    const file$4 = "src\\User\\User.svelte";
 
-    const app = new App({
-      target: root,
-      anchor,
-      props
-    });
+    function create_fragment$4(ctx) {
+    	let h1;
+    	let t1;
+    	let h3;
+    	let t3;
+    	let p;
 
-    fetch("https://jsonplaceholder.typicode.com/users")
-      .then((response) => response.json())
-      .then((json) => {
+    	const block = {
+    		c: function create() {
+    			h1 = element("h1");
+    			h1.textContent = `${/*name*/ ctx[0]}`;
+    			t1 = space();
+    			h3 = element("h3");
+    			h3.textContent = `${/*email*/ ctx[1]}`;
+    			t3 = space();
+    			p = element("p");
+    			p.textContent = `${/*company*/ ctx[2].catchPhrase}`;
+    			add_location(h1, file$4, 5, 0, 85);
+    			add_location(h3, file$4, 6, 0, 102);
+    			add_location(p, file$4, 7, 0, 120);
+    		},
+    		l: function claim(nodes) {
+    			throw new Error("options.hydrate only works if the component was compiled with the `hydratable: true` option");
+    		},
+    		m: function mount(target, anchor) {
+    			insert_dev(target, h1, anchor);
+    			insert_dev(target, t1, anchor);
+    			insert_dev(target, h3, anchor);
+    			insert_dev(target, t3, anchor);
+    			insert_dev(target, p, anchor);
+    		},
+    		p: noop,
+    		i: noop,
+    		o: noop,
+    		d: function destroy(detaching) {
+    			if (detaching) detach_dev(h1);
+    			if (detaching) detach_dev(t1);
+    			if (detaching) detach_dev(h3);
+    			if (detaching) detach_dev(t3);
+    			if (detaching) detach_dev(p);
+    		}
+    	};
+
+    	dispatch_dev("SvelteRegisterBlock", {
+    		block,
+    		id: create_fragment$4.name,
+    		type: "component",
+    		source: "",
+    		ctx
+    	});
+
+    	return block;
+    }
+
+    function instance$4($$self, $$props, $$invalidate) {
+    	let { user } = $$props;
+    	const { name, email, company } = user;
+    	const writable_props = ["user"];
+
+    	Object.keys($$props).forEach(key => {
+    		if (!~writable_props.indexOf(key) && key.slice(0, 2) !== "$$") console.warn(`<User> was created with unknown prop '${key}'`);
+    	});
+
+    	$$self.$set = $$props => {
+    		if ("user" in $$props) $$invalidate(3, user = $$props.user);
+    	};
+
+    	$$self.$capture_state = () => {
+    		return { user };
+    	};
+
+    	$$self.$inject_state = $$props => {
+    		if ("user" in $$props) $$invalidate(3, user = $$props.user);
+    	};
+
+    	return [name, email, company, user];
+    }
+
+    class User extends SvelteComponentDev {
+    	constructor(options) {
+    		super(options);
+    		init(this, options, instance$4, create_fragment$4, safe_not_equal, { user: 3 });
+
+    		dispatch_dev("SvelteRegisterComponent", {
+    			component: this,
+    			tagName: "User",
+    			options,
+    			id: create_fragment$4.name
+    		});
+
+    		const { ctx } = this.$$;
+    		const props = options.props || ({});
+
+    		if (/*user*/ ctx[3] === undefined && !("user" in props)) {
+    			console.warn("<User> was created without expected prop 'user'");
+    		}
+    	}
+
+    	get user() {
+    		throw new Error("<User>: Props cannot be read directly from the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
+    	}
+
+    	set user(value) {
+    		throw new Error("<User>: Props cannot be set directly on the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
+    	}
+    }
+
+    const url = new URL(window.location);
+    const path = window.location.pathname;
+
+    switch (path) {
+      case "/users":
+        let id = url.searchParams.get("id");
+        const usersRoot = document.querySelector("#users");
+        if (!id) {
+          fetch(`https://jsonplaceholder.typicode.com/users`)
+            .then((response) => response.json())
+            .then((json) => {
+              const props = {
+                users: json
+              };
+              const users = new Users({
+                target: usersRoot,
+                props
+              });
+            });
+        } else {
+          fetch(`https://jsonplaceholder.typicode.com/users/${id}`)
+            .then((response) => response.json())
+            .then((json) => {
+              console.log(json);
+              const props = {
+                user: json
+              };
+              const user = new User({
+                target: usersRoot,
+                props
+              });
+            });
+        }
+
+        break;
+      default:
+        const root = document.querySelector("#svelte-root");
+        const anchor = document.querySelector("#anchor");
         const props = {
-          users: json
+          mod: "passed mod"
         };
-        const users = new Users({
-          target: usersRoot,
+
+        const app = new App({
+          target: root,
+          anchor,
           props
         });
-      });
+        break;
+    }
 
     return app;
 
