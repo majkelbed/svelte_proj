@@ -1,6 +1,7 @@
 import App from "./App.svelte";
 import Users from "./Users/Users.svelte";
 import User from "./User/User.svelte";
+import Table from "./Table/Table.svelte";
 
 const url = new URL(window.location);
 const path = window.location.pathname;
@@ -36,6 +37,21 @@ switch (path) {
         });
     }
 
+    break;
+  case "/table":
+    const tableRoot = document.querySelector("#table");
+    fetch(`https://pokeapi.co/api/v2/pokemon?limit=10`)
+      .then((response) => response.json())
+      .then((json) => {
+        const props = {
+          items: json,
+          columns: ["name", "url"]
+        };
+        const table = new Table({
+          target: tableRoot,
+          props
+        });
+      });
     break;
   default:
     const root = document.querySelector("#svelte-root");
