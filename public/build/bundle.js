@@ -4,6 +4,9 @@ var app = (function () {
     'use strict';
 
     function noop() { }
+    function is_promise(value) {
+        return value && typeof value === 'object' && typeof value.then === 'function';
+    }
     function add_location(element, file, line, column, char) {
         element.__svelte_meta = {
             loc: { file, line, column, char }
@@ -49,6 +52,9 @@ var app = (function () {
     function space() {
         return text(' ');
     }
+    function empty() {
+        return text('');
+    }
     function listen(node, event, handler, options) {
         node.addEventListener(event, handler, options);
         return () => node.removeEventListener(event, handler, options);
@@ -59,8 +65,16 @@ var app = (function () {
         else if (node.getAttribute(attribute) !== value)
             node.setAttribute(attribute, value);
     }
+    function to_number(value) {
+        return value === '' ? undefined : +value;
+    }
     function children(element) {
         return Array.from(element.childNodes);
+    }
+    function set_input_value(input, value) {
+        if (value != null || input.value) {
+            input.value = value;
+        }
     }
     function custom_event(type, detail) {
         const e = document.createEvent('CustomEvent');
@@ -77,23 +91,6 @@ var app = (function () {
             throw new Error(`Function called outside component initialization`);
         return current_component;
     }
-    function onMount(fn) {
-        get_current_component().$$.on_mount.push(fn);
-    }
-    function createEventDispatcher() {
-        const component = get_current_component();
-        return (type, detail) => {
-            const callbacks = component.$$.callbacks[type];
-            if (callbacks) {
-                // TODO are there situations where events could be dispatched
-                // in a server (non-DOM) environment?
-                const event = custom_event(type, detail);
-                callbacks.slice().forEach(fn => {
-                    fn.call(component, event);
-                });
-            }
-        };
-    }
 
     const dirty_components = [];
     const binding_callbacks = [];
@@ -109,9 +106,6 @@ var app = (function () {
     }
     function add_render_callback(fn) {
         render_callbacks.push(fn);
-    }
-    function add_flush_callback(fn) {
-        flush_callbacks.push(fn);
     }
     function flush() {
         const seen_callbacks = new Set();
@@ -191,11 +185,69 @@ var app = (function () {
         }
     }
 
-    function bind(component, name, callback) {
-        const index = component.$$.props[name];
-        if (index !== undefined) {
-            component.$$.bound[index] = callback;
-            callback(component.$$.ctx[index]);
+    function handle_promise(promise, info) {
+        const token = info.token = {};
+        function update(type, index, key, value) {
+            if (info.token !== token)
+                return;
+            info.resolved = value;
+            let child_ctx = info.ctx;
+            if (key !== undefined) {
+                child_ctx = child_ctx.slice();
+                child_ctx[key] = value;
+            }
+            const block = type && (info.current = type)(child_ctx);
+            let needs_flush = false;
+            if (info.block) {
+                if (info.blocks) {
+                    info.blocks.forEach((block, i) => {
+                        if (i !== index && block) {
+                            group_outros();
+                            transition_out(block, 1, 1, () => {
+                                info.blocks[i] = null;
+                            });
+                            check_outros();
+                        }
+                    });
+                }
+                else {
+                    info.block.d(1);
+                }
+                block.c();
+                transition_in(block, 1);
+                block.m(info.mount(), info.anchor);
+                needs_flush = true;
+            }
+            info.block = block;
+            if (info.blocks)
+                info.blocks[index] = block;
+            if (needs_flush) {
+                flush();
+            }
+        }
+        if (is_promise(promise)) {
+            const current_component = get_current_component();
+            promise.then(value => {
+                set_current_component(current_component);
+                update(info.then, 1, info.value, value);
+                set_current_component(null);
+            }, error => {
+                set_current_component(current_component);
+                update(info.catch, 2, info.error, error);
+                set_current_component(null);
+            });
+            // if we previously had a then/catch block, destroy it
+            if (info.current !== info.pending) {
+                update(info.pending, 0);
+                return true;
+            }
+        }
+        else {
+            if (info.current !== info.then) {
+                update(info.then, 1, info.value, promise);
+                return true;
+            }
+            info.resolved = promise;
         }
     }
     function create_component(block) {
@@ -369,52 +421,192 @@ var app = (function () {
         }
     }
 
-    /* src\components\Price.svelte generated by Svelte v3.16.7 */
-    const file = "src\\components\\Price.svelte";
+    async function getPokemons() {
+      let pokemons = JSON.parse(localStorage.getItem("pokemons"));
+      if (pokemons === null) {
+        pokemons = await fetchPokemons();
+        setPokemons(pokemons);
+      }
+      return pokemons;
+    }
 
-    function create_fragment(ctx) {
-    	let div;
+    async function setPokemons(pokemons) {
+      localStorage.setItem("pokemons", JSON.stringify(pokemons));
+    }
+
+    async function fetchPokemons(
+      URL = "https://pokeapi.co/api/v2/pokemon",
+      limit = 5
+    ) {
+      const res = await fetch(`${URL}?limit=${limit}`);
+      const pokemons = await res.json();
+      return pokemons.results;
+    }
+
+    async function addPokemon(pokemon) {
+      const pokemons = await getPokemons();
+      setPokemons([...pokemons, pokemon]);
+    }
+
+    async function removePokemon(id) {
+      const pokemons = await getPokemons();
+      const removed = pokemons.splice(id, 1);
+      setPokemons([...pokemons]);
+      return removed;
+    }
+
+    async function getDetails(data) {
+      const { url = false } = data;
+      let details = data;
+      if (url) {
+        const res = await fetch(url);
+        details = await res.json();
+      }
+      return details;
+    }
+
+    /* src\Pokemon\Pokemon.svelte generated by Svelte v3.16.7 */
+    const file = "src\\Pokemon\\Pokemon.svelte";
+
+    // (1:0) <script>    import { getDetails }
+    function create_catch_block(ctx) {
+    	const block = { c: noop, m: noop, p: noop, d: noop };
+
+    	dispatch_dev("SvelteRegisterBlock", {
+    		block,
+    		id: create_catch_block.name,
+    		type: "catch",
+    		source: "(1:0) <script>    import { getDetails }",
+    		ctx
+    	});
+
+    	return block;
+    }
+
+    // (7:26)     <!-- {#each Object.entries(info) as [key, value]}
+    function create_then_block(ctx) {
+    	let div2;
+    	let div0;
+    	let h5;
+    	let t0_value = /*info*/ ctx[2].name + "";
     	let t0;
     	let t1;
+    	let div1;
+    	let span;
     	let t2;
+    	let t3_value = /*info*/ ctx[2].weight + "";
     	let t3;
-    	let button;
-    	let dispose;
 
     	const block = {
     		c: function create() {
-    			div = element("div");
-    			t0 = text(/*price*/ ctx[0]);
+    			div2 = element("div");
+    			div0 = element("div");
+    			h5 = element("h5");
+    			t0 = text(t0_value);
     			t1 = space();
-    			t2 = text(/*currency*/ ctx[1]);
-    			t3 = space();
-    			button = element("button");
-    			button.textContent = "+1";
-    			add_location(button, file, 16, 2, 351);
-    			attr_dev(div, "class", "text-primary");
-    			add_location(div, file, 14, 0, 299);
-    			dispose = listen_dev(button, "click", /*increment*/ ctx[2], false, false, false);
+    			div1 = element("div");
+    			span = element("span");
+    			t2 = text("weight: ");
+    			t3 = text(t3_value);
+    			attr_dev(h5, "class", "card-title");
+    			add_location(h5, file, 13, 6, 351);
+    			attr_dev(div0, "class", "card-header");
+    			add_location(div0, file, 12, 4, 318);
+    			add_location(span, file, 16, 6, 439);
+    			attr_dev(div1, "class", "card-body");
+    			add_location(div1, file, 15, 4, 408);
+    			attr_dev(div2, "class", "card w-100");
+    			add_location(div2, file, 11, 2, 288);
+    		},
+    		m: function mount(target, anchor) {
+    			insert_dev(target, div2, anchor);
+    			append_dev(div2, div0);
+    			append_dev(div0, h5);
+    			append_dev(h5, t0);
+    			append_dev(div2, t1);
+    			append_dev(div2, div1);
+    			append_dev(div1, span);
+    			append_dev(span, t2);
+    			append_dev(span, t3);
+    		},
+    		p: noop,
+    		d: function destroy(detaching) {
+    			if (detaching) detach_dev(div2);
+    		}
+    	};
+
+    	dispatch_dev("SvelteRegisterBlock", {
+    		block,
+    		id: create_then_block.name,
+    		type: "then",
+    		source: "(7:26)     <!-- {#each Object.entries(info) as [key, value]}",
+    		ctx
+    	});
+
+    	return block;
+    }
+
+    // (1:0) <script>    import { getDetails }
+    function create_pending_block(ctx) {
+    	const block = { c: noop, m: noop, p: noop, d: noop };
+
+    	dispatch_dev("SvelteRegisterBlock", {
+    		block,
+    		id: create_pending_block.name,
+    		type: "pending",
+    		source: "(1:0) <script>    import { getDetails }",
+    		ctx
+    	});
+
+    	return block;
+    }
+
+    function create_fragment(ctx) {
+    	let await_block_anchor;
+    	let promise;
+
+    	let info = {
+    		ctx,
+    		current: null,
+    		token: null,
+    		pending: create_pending_block,
+    		then: create_then_block,
+    		catch: create_catch_block,
+    		value: 2
+    	};
+
+    	handle_promise(promise = /*details*/ ctx[0], info);
+
+    	const block = {
+    		c: function create() {
+    			await_block_anchor = empty();
+    			info.block.c();
     		},
     		l: function claim(nodes) {
     			throw new Error("options.hydrate only works if the component was compiled with the `hydratable: true` option");
     		},
     		m: function mount(target, anchor) {
-    			insert_dev(target, div, anchor);
-    			append_dev(div, t0);
-    			append_dev(div, t1);
-    			append_dev(div, t2);
-    			append_dev(div, t3);
-    			append_dev(div, button);
+    			insert_dev(target, await_block_anchor, anchor);
+    			info.block.m(target, info.anchor = anchor);
+    			info.mount = () => await_block_anchor.parentNode;
+    			info.anchor = await_block_anchor;
     		},
-    		p: function update(ctx, [dirty]) {
-    			if (dirty & /*price*/ 1) set_data_dev(t0, /*price*/ ctx[0]);
-    			if (dirty & /*currency*/ 2) set_data_dev(t2, /*currency*/ ctx[1]);
+    		p: function update(new_ctx, [dirty]) {
+    			ctx = new_ctx;
+
+    			{
+    				const child_ctx = ctx.slice();
+    				child_ctx[2] = info.resolved;
+    				info.block.p(child_ctx, dirty);
+    			}
     		},
     		i: noop,
     		o: noop,
     		d: function destroy(detaching) {
-    			if (detaching) detach_dev(div);
-    			dispose();
+    			if (detaching) detach_dev(await_block_anchor);
+    			info.block.d(detaching);
+    			info.token = null;
+    			info = null;
     		}
     	};
 
@@ -430,131 +622,135 @@ var app = (function () {
     }
 
     function instance($$self, $$props, $$invalidate) {
-    	const dispatch = createEventDispatcher();
-    	let { price = 0 } = $$props;
-    	let { currency = "PLN" } = $$props;
-
-    	function increment() {
-    		$$invalidate(0, price++, price);
-    		dispatch("priceUpdate");
-    	}
-
-    	const writable_props = ["price", "currency"];
+    	let { pokemon } = $$props;
+    	const details = getDetails(pokemon);
+    	const writable_props = ["pokemon"];
 
     	Object.keys($$props).forEach(key => {
-    		if (!~writable_props.indexOf(key) && key.slice(0, 2) !== "$$") console.warn(`<Price> was created with unknown prop '${key}'`);
+    		if (!~writable_props.indexOf(key) && key.slice(0, 2) !== "$$") console.warn(`<Pokemon> was created with unknown prop '${key}'`);
     	});
 
     	$$self.$set = $$props => {
-    		if ("price" in $$props) $$invalidate(0, price = $$props.price);
-    		if ("currency" in $$props) $$invalidate(1, currency = $$props.currency);
+    		if ("pokemon" in $$props) $$invalidate(1, pokemon = $$props.pokemon);
     	};
 
     	$$self.$capture_state = () => {
-    		return { price, currency };
+    		return { pokemon };
     	};
 
     	$$self.$inject_state = $$props => {
-    		if ("price" in $$props) $$invalidate(0, price = $$props.price);
-    		if ("currency" in $$props) $$invalidate(1, currency = $$props.currency);
+    		if ("pokemon" in $$props) $$invalidate(1, pokemon = $$props.pokemon);
     	};
 
-    	return [price, currency, increment];
+    	return [details, pokemon];
     }
 
-    class Price extends SvelteComponentDev {
+    class Pokemon extends SvelteComponentDev {
     	constructor(options) {
     		super(options);
-    		init(this, options, instance, create_fragment, safe_not_equal, { price: 0, currency: 1 });
+    		init(this, options, instance, create_fragment, safe_not_equal, { pokemon: 1 });
 
     		dispatch_dev("SvelteRegisterComponent", {
     			component: this,
-    			tagName: "Price",
+    			tagName: "Pokemon",
     			options,
     			id: create_fragment.name
     		});
+
+    		const { ctx } = this.$$;
+    		const props = options.props || ({});
+
+    		if (/*pokemon*/ ctx[1] === undefined && !("pokemon" in props)) {
+    			console.warn("<Pokemon> was created without expected prop 'pokemon'");
+    		}
     	}
 
-    	get price() {
-    		throw new Error("<Price>: Props cannot be read directly from the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
+    	get pokemon() {
+    		throw new Error("<Pokemon>: Props cannot be read directly from the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
     	}
 
-    	set price(value) {
-    		throw new Error("<Price>: Props cannot be set directly on the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
-    	}
-
-    	get currency() {
-    		throw new Error("<Price>: Props cannot be read directly from the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
-    	}
-
-    	set currency(value) {
-    		throw new Error("<Price>: Props cannot be set directly on the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
+    	set pokemon(value) {
+    		throw new Error("<Pokemon>: Props cannot be set directly on the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
     	}
     }
 
-    /* src\components\Sum.svelte generated by Svelte v3.16.7 */
-    const file$1 = "src\\components\\Sum.svelte";
+    /* src\Pokemons\Pokemons.svelte generated by Svelte v3.16.7 */
+    const file$1 = "src\\Pokemons\\Pokemons.svelte";
 
     function get_each_context(ctx, list, i) {
     	const child_ctx = ctx.slice();
-    	child_ctx[4] = list[i].price;
-    	child_ctx[5] = list[i].currency;
-    	child_ctx[6] = list;
-    	child_ctx[7] = i;
+    	child_ctx[8] = list[i];
+    	child_ctx[10] = i;
     	return child_ctx;
     }
 
-    // (19:0) {#each prices as { price, currency }}
+    // (26:2) {#each pokemons as pokemon, index}
     function create_each_block(ctx) {
-    	let updating_price;
+    	let t0;
+    	let t1;
+    	let div;
+    	let button;
+    	let t3;
+    	let t4;
     	let current;
+    	let dispose;
 
-    	function price_price_binding(value) {
-    		/*price_price_binding*/ ctx[3].call(null, value, /*price*/ ctx[4], /*each_value*/ ctx[6], /*each_index*/ ctx[7]);
+    	function click_handler(...args) {
+    		return /*click_handler*/ ctx[5](/*index*/ ctx[10], ...args);
     	}
 
-    	let price_props = { currency: /*currency*/ ctx[5] };
-
-    	if (/*price*/ ctx[4] !== void 0) {
-    		price_props.price = /*price*/ ctx[4];
-    	}
-
-    	const price = new Price({ props: price_props, $$inline: true });
-    	binding_callbacks.push(() => bind(price, "price", price_price_binding));
-    	price.$on("priceUpdate", /*summary*/ ctx[2]);
+    	const pokemon = new Pokemon({
+    			props: { pokemon: /*pokemon*/ ctx[8] },
+    			$$inline: true
+    		});
 
     	const block = {
     		c: function create() {
-    			create_component(price.$$.fragment);
+    			t0 = text(/*index*/ ctx[10]);
+    			t1 = space();
+    			div = element("div");
+    			button = element("button");
+    			button.textContent = "Usuń";
+    			t3 = space();
+    			create_component(pokemon.$$.fragment);
+    			t4 = space();
+    			attr_dev(button, "class", "btn btn-danger mr-2");
+    			add_location(button, file$1, 28, 6, 665);
+    			attr_dev(div, "class", "d-flex align-items-center");
+    			add_location(div, file$1, 27, 4, 618);
+    			dispose = listen_dev(button, "click", click_handler, false, false, false);
     		},
     		m: function mount(target, anchor) {
-    			mount_component(price, target, anchor);
+    			insert_dev(target, t0, anchor);
+    			insert_dev(target, t1, anchor);
+    			insert_dev(target, div, anchor);
+    			append_dev(div, button);
+    			append_dev(div, t3);
+    			mount_component(pokemon, div, null);
+    			append_dev(div, t4);
     			current = true;
     		},
     		p: function update(new_ctx, dirty) {
     			ctx = new_ctx;
-    			const price_changes = {};
-    			if (dirty & /*prices*/ 1) price_changes.currency = /*currency*/ ctx[5];
-
-    			if (!updating_price && dirty & /*prices*/ 1) {
-    				updating_price = true;
-    				price_changes.price = /*price*/ ctx[4];
-    				add_flush_callback(() => updating_price = false);
-    			}
-
-    			price.$set(price_changes);
+    			const pokemon_changes = {};
+    			if (dirty & /*pokemons*/ 1) pokemon_changes.pokemon = /*pokemon*/ ctx[8];
+    			pokemon.$set(pokemon_changes);
     		},
     		i: function intro(local) {
     			if (current) return;
-    			transition_in(price.$$.fragment, local);
+    			transition_in(pokemon.$$.fragment, local);
     			current = true;
     		},
     		o: function outro(local) {
-    			transition_out(price.$$.fragment, local);
+    			transition_out(pokemon.$$.fragment, local);
     			current = false;
     		},
     		d: function destroy(detaching) {
-    			destroy_component(price, detaching);
+    			if (detaching) detach_dev(t0);
+    			if (detaching) detach_dev(t1);
+    			if (detaching) detach_dev(div);
+    			destroy_component(pokemon);
+    			dispose();
     		}
     	};
 
@@ -562,7 +758,7 @@ var app = (function () {
     		block,
     		id: create_each_block.name,
     		type: "each",
-    		source: "(19:0) {#each prices as { price, currency }}",
+    		source: "(26:2) {#each pokemons as pokemon, index}",
     		ctx
     	});
 
@@ -570,12 +766,19 @@ var app = (function () {
     }
 
     function create_fragment$1(ctx) {
+    	let div0;
     	let t0;
-    	let div;
+    	let div1;
     	let t1;
+    	let input0;
     	let t2;
+    	let input1;
+    	let input1_updating = false;
+    	let t3;
+    	let button;
     	let current;
-    	let each_value = /*prices*/ ctx[0];
+    	let dispose;
+    	let each_value = /*pokemons*/ ctx[0];
     	let each_blocks = [];
 
     	for (let i = 0; i < each_value.length; i += 1) {
@@ -586,36 +789,67 @@ var app = (function () {
     		each_blocks[i] = null;
     	});
 
+    	function input1_input_handler() {
+    		input1_updating = true;
+    		/*input1_input_handler*/ ctx[7].call(input1);
+    	}
+
     	const block = {
     		c: function create() {
+    			div0 = element("div");
+
     			for (let i = 0; i < each_blocks.length; i += 1) {
     				each_blocks[i].c();
     			}
 
     			t0 = space();
-    			div = element("div");
-    			t1 = text("Total: ");
-    			t2 = text(/*sum*/ ctx[1]);
-    			attr_dev(div, "class", "text-danger");
-    			add_location(div, file$1, 21, 0, 478);
+    			div1 = element("div");
+    			t1 = text("Name:\r\n  ");
+    			input0 = element("input");
+    			t2 = text("\r\n  Weight:\r\n  ");
+    			input1 = element("input");
+    			t3 = space();
+    			button = element("button");
+    			button.textContent = "Add pokemon";
+    			add_location(div0, file$1, 24, 0, 556);
+    			attr_dev(input0, "type", "text");
+    			add_location(input0, file$1, 37, 2, 850);
+    			attr_dev(input1, "type", "number");
+    			add_location(input1, file$1, 39, 2, 904);
+    			add_location(button, file$1, 40, 2, 951);
+    			add_location(div1, file$1, 35, 0, 832);
+
+    			dispose = [
+    				listen_dev(input0, "input", /*input0_input_handler*/ ctx[6]),
+    				listen_dev(input1, "input", input1_input_handler),
+    				listen_dev(button, "click", /*addPokemon*/ ctx[3], false, false, false)
+    			];
     		},
     		l: function claim(nodes) {
     			throw new Error("options.hydrate only works if the component was compiled with the `hydratable: true` option");
     		},
     		m: function mount(target, anchor) {
+    			insert_dev(target, div0, anchor);
+
     			for (let i = 0; i < each_blocks.length; i += 1) {
-    				each_blocks[i].m(target, anchor);
+    				each_blocks[i].m(div0, null);
     			}
 
     			insert_dev(target, t0, anchor);
-    			insert_dev(target, div, anchor);
-    			append_dev(div, t1);
-    			append_dev(div, t2);
+    			insert_dev(target, div1, anchor);
+    			append_dev(div1, t1);
+    			append_dev(div1, input0);
+    			set_input_value(input0, /*name*/ ctx[1]);
+    			append_dev(div1, t2);
+    			append_dev(div1, input1);
+    			set_input_value(input1, /*weight*/ ctx[2]);
+    			append_dev(div1, t3);
+    			append_dev(div1, button);
     			current = true;
     		},
     		p: function update(ctx, [dirty]) {
-    			if (dirty & /*prices, summary*/ 5) {
-    				each_value = /*prices*/ ctx[0];
+    			if (dirty & /*pokemons, removePokemon*/ 17) {
+    				each_value = /*pokemons*/ ctx[0];
     				let i;
 
     				for (i = 0; i < each_value.length; i += 1) {
@@ -628,7 +862,7 @@ var app = (function () {
     						each_blocks[i] = create_each_block(child_ctx);
     						each_blocks[i].c();
     						transition_in(each_blocks[i], 1);
-    						each_blocks[i].m(t0.parentNode, t0);
+    						each_blocks[i].m(div0, null);
     					}
     				}
 
@@ -641,7 +875,15 @@ var app = (function () {
     				check_outros();
     			}
 
-    			if (!current || dirty & /*sum*/ 2) set_data_dev(t2, /*sum*/ ctx[1]);
+    			if (dirty & /*name*/ 2 && input0.value !== /*name*/ ctx[1]) {
+    				set_input_value(input0, /*name*/ ctx[1]);
+    			}
+
+    			if (!input1_updating && dirty & /*weight*/ 4) {
+    				set_input_value(input1, /*weight*/ ctx[2]);
+    			}
+
+    			input1_updating = false;
     		},
     		i: function intro(local) {
     			if (current) return;
@@ -662,9 +904,11 @@ var app = (function () {
     			current = false;
     		},
     		d: function destroy(detaching) {
+    			if (detaching) detach_dev(div0);
     			destroy_each(each_blocks, detaching);
     			if (detaching) detach_dev(t0);
-    			if (detaching) detach_dev(div);
+    			if (detaching) detach_dev(div1);
+    			run_all(dispose);
     		}
     	};
 
@@ -680,63 +924,68 @@ var app = (function () {
     }
 
     function instance$1($$self, $$props, $$invalidate) {
-    	let { prices = [] } = $$props;
-    	let sum = 0;
+    	let pokemons = [];
+    	getPokemons().then(p => $$invalidate(0, pokemons = p));
+    	let name = "";
+    	let weight = 0;
 
-    	onMount(() => {
-    		summary();
-    	});
-
-    	function summary() {
-    		$$invalidate(1, sum = prices.reduce((sum, label) => sum += label.price, 0));
+    	async function addPokemon$1() {
+    		await addPokemon({ name, weight });
+    		$$invalidate(1, name = "");
+    		$$invalidate(2, weight = 0);
+    		getPokemons().then(p => $$invalidate(0, pokemons = p));
     	}
 
-    	const writable_props = ["prices"];
-
-    	Object.keys($$props).forEach(key => {
-    		if (!~writable_props.indexOf(key) && key.slice(0, 2) !== "$$") console.warn(`<Sum> was created with unknown prop '${key}'`);
-    	});
-
-    	function price_price_binding(value, price, each_value, each_index) {
-    		each_value[each_index].price = value;
-    		$$invalidate(0, prices);
+    	async function removePokemon$1(index) {
+    		await removePokemon(index);
+    		getPokemons().then(p => $$invalidate(0, pokemons = p));
     	}
 
-    	$$self.$set = $$props => {
-    		if ("prices" in $$props) $$invalidate(0, prices = $$props.prices);
-    	};
+    	const click_handler = index => removePokemon$1(index);
+
+    	function input0_input_handler() {
+    		name = this.value;
+    		$$invalidate(1, name);
+    	}
+
+    	function input1_input_handler() {
+    		weight = to_number(this.value);
+    		$$invalidate(2, weight);
+    	}
 
     	$$self.$capture_state = () => {
-    		return { prices, sum };
+    		return {};
     	};
 
     	$$self.$inject_state = $$props => {
-    		if ("prices" in $$props) $$invalidate(0, prices = $$props.prices);
-    		if ("sum" in $$props) $$invalidate(1, sum = $$props.sum);
+    		if ("pokemons" in $$props) $$invalidate(0, pokemons = $$props.pokemons);
+    		if ("name" in $$props) $$invalidate(1, name = $$props.name);
+    		if ("weight" in $$props) $$invalidate(2, weight = $$props.weight);
     	};
 
-    	return [prices, sum, summary, price_price_binding];
+    	return [
+    		pokemons,
+    		name,
+    		weight,
+    		addPokemon$1,
+    		removePokemon$1,
+    		click_handler,
+    		input0_input_handler,
+    		input1_input_handler
+    	];
     }
 
-    class Sum extends SvelteComponentDev {
+    class Pokemons extends SvelteComponentDev {
     	constructor(options) {
     		super(options);
-    		init(this, options, instance$1, create_fragment$1, safe_not_equal, { prices: 0 });
+    		init(this, options, instance$1, create_fragment$1, safe_not_equal, {});
 
     		dispatch_dev("SvelteRegisterComponent", {
     			component: this,
-    			tagName: "Sum",
+    			tagName: "Pokemons",
     			options,
     			id: create_fragment$1.name
     		});
-    	}
-
-    	get prices() {
-    		throw new Error("<Sum>: Props cannot be read directly from the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
-    	}
-
-    	set prices(value) {
-    		throw new Error("<Sum>: Props cannot be set directly on the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
     	}
     }
 
@@ -745,52 +994,59 @@ var app = (function () {
 
     function create_fragment$2(ctx) {
     	let link;
-    	let t;
-    	let main;
+    	let t0;
+    	let t1;
+    	let h1;
+    	let t2;
+    	let t3;
     	let current;
-
-    	const sum = new Sum({
-    			props: { prices: /*prices*/ ctx[0] },
-    			$$inline: true
-    		});
+    	const pokemons = new Pokemons({ $$inline: true });
 
     	const block = {
     		c: function create() {
     			link = element("link");
-    			t = space();
-    			main = element("main");
-    			create_component(sum.$$.fragment);
+    			t0 = space();
+    			create_component(pokemons.$$.fragment);
+    			t1 = space();
+    			h1 = element("h1");
+    			t2 = text("Hello Svelte! ");
+    			t3 = text(/*mod*/ ctx[0]);
     			attr_dev(link, "rel", "stylesheet");
     			attr_dev(link, "href", "https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css");
-    			add_location(link, file$2, 55, 2, 1304);
-    			attr_dev(main, "class", "svelte-1e9puaw");
-    			add_location(main, file$2, 59, 0, 1433);
+    			add_location(link, file$2, 6, 2, 107);
+    			add_location(h1, file$2, 11, 0, 249);
     		},
     		l: function claim(nodes) {
     			throw new Error("options.hydrate only works if the component was compiled with the `hydratable: true` option");
     		},
     		m: function mount(target, anchor) {
     			append_dev(document.head, link);
-    			insert_dev(target, t, anchor);
-    			insert_dev(target, main, anchor);
-    			mount_component(sum, main, null);
+    			insert_dev(target, t0, anchor);
+    			mount_component(pokemons, target, anchor);
+    			insert_dev(target, t1, anchor);
+    			insert_dev(target, h1, anchor);
+    			append_dev(h1, t2);
+    			append_dev(h1, t3);
     			current = true;
     		},
-    		p: noop,
+    		p: function update(ctx, [dirty]) {
+    			if (!current || dirty & /*mod*/ 1) set_data_dev(t3, /*mod*/ ctx[0]);
+    		},
     		i: function intro(local) {
     			if (current) return;
-    			transition_in(sum.$$.fragment, local);
+    			transition_in(pokemons.$$.fragment, local);
     			current = true;
     		},
     		o: function outro(local) {
-    			transition_out(sum.$$.fragment, local);
+    			transition_out(pokemons.$$.fragment, local);
     			current = false;
     		},
     		d: function destroy(detaching) {
     			detach_dev(link);
-    			if (detaching) detach_dev(t);
-    			if (detaching) detach_dev(main);
-    			destroy_component(sum);
+    			if (detaching) detach_dev(t0);
+    			destroy_component(pokemons, detaching);
+    			if (detaching) detach_dev(t1);
+    			if (detaching) detach_dev(h1);
     		}
     	};
 
@@ -806,46 +1062,32 @@ var app = (function () {
     }
 
     function instance$2($$self, $$props, $$invalidate) {
-    	let { name } = $$props;
-
-    	let prices = [
-    		{ price: 2.57, currency: "PLN" },
-    		{ price: 23.57, currency: "PLN" },
-    		{ price: 21.57, currency: "PLN" },
-    		{ price: 123.57, currency: "PLN" },
-    		{ price: 623.57, currency: "PLN" },
-    		{ price: 2.57, currency: "PLN" },
-    		{ price: 4234.57, currency: "PLN" },
-    		{ price: 213.57, currency: "PLN" },
-    		{ price: 12.57, currency: "PLN" }
-    	];
-
-    	const writable_props = ["name"];
+    	let { mod } = $$props;
+    	const writable_props = ["mod"];
 
     	Object.keys($$props).forEach(key => {
     		if (!~writable_props.indexOf(key) && key.slice(0, 2) !== "$$") console.warn(`<App> was created with unknown prop '${key}'`);
     	});
 
     	$$self.$set = $$props => {
-    		if ("name" in $$props) $$invalidate(1, name = $$props.name);
+    		if ("mod" in $$props) $$invalidate(0, mod = $$props.mod);
     	};
 
     	$$self.$capture_state = () => {
-    		return { name, prices };
+    		return { mod };
     	};
 
     	$$self.$inject_state = $$props => {
-    		if ("name" in $$props) $$invalidate(1, name = $$props.name);
-    		if ("prices" in $$props) $$invalidate(0, prices = $$props.prices);
+    		if ("mod" in $$props) $$invalidate(0, mod = $$props.mod);
     	};
 
-    	return [prices, name];
+    	return [mod];
     }
 
     class App extends SvelteComponentDev {
     	constructor(options) {
     		super(options);
-    		init(this, options, instance$2, create_fragment$2, safe_not_equal, { name: 1 });
+    		init(this, options, instance$2, create_fragment$2, safe_not_equal, { mod: 0 });
 
     		dispatch_dev("SvelteRegisterComponent", {
     			component: this,
@@ -857,34 +1099,30 @@ var app = (function () {
     		const { ctx } = this.$$;
     		const props = options.props || ({});
 
-    		if (/*name*/ ctx[1] === undefined && !("name" in props)) {
-    			console.warn("<App> was created without expected prop 'name'");
+    		if (/*mod*/ ctx[0] === undefined && !("mod" in props)) {
+    			console.warn("<App> was created without expected prop 'mod'");
     		}
     	}
 
-    	get name() {
+    	get mod() {
     		throw new Error("<App>: Props cannot be read directly from the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
     	}
 
-    	set name(value) {
+    	set mod(value) {
     		throw new Error("<App>: Props cannot be set directly on the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
     	}
     }
 
-    const target = document.querySelector("#svelte-root");
-    const target2 = document.querySelector("#svelte-root2");
+    const root = document.querySelector("#svelte-root");
+    const anchor = document.querySelector("#anchor");
+    const props = {
+      mod: "passed mod"
+    };
 
     const app = new App({
-      target,
-      props: {
-        name: "michal"
-      }
-    });
-    const app2 = new App({
-      target: target2,
-      props: {
-        name: "michal"
-      }
+      target: root,
+      anchor,
+      props
     });
 
     return app;

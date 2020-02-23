@@ -1,12 +1,8 @@
 {
   "version": 3,
   "file": "bundle.css",
-  "sources": [
-    "..\\..\\App.svelte"
-  ],
-  "sourcesContent": [
-    "<script>\n  import Sum from \"./components/Sum.svelte\";\n  import Users from \"./Users.svelte\";\n  import Data from \"./model.js\";\n  export let name;\n\n  import { writable } from \"svelte/store\";\n\n  // let prices = writable([\n  //   { price: 2.57, currency: \"PLN\" },\n  //   { price: 23.57, currency: \"PLN\" },\n  //   { price: 21.57, currency: \"PLN\" },\n  //   { price: 123.57, currency: \"PLN\" },\n  //   { price: 623.57, currency: \"PLN\" },\n  //   { price: 2.57, currency: \"PLN\" },\n  //   { price: 4234.57, currency: \"PLN\" },\n  //   { price: 213.57, currency: \"PLN\" },\n  //   { price: 12.57, currency: \"PLN\" }\n  // ]);\n  let prices = [\n    { price: 2.57, currency: \"PLN\" },\n    { price: 23.57, currency: \"PLN\" },\n    { price: 21.57, currency: \"PLN\" },\n    { price: 123.57, currency: \"PLN\" },\n    { price: 623.57, currency: \"PLN\" },\n    { price: 2.57, currency: \"PLN\" },\n    { price: 4234.57, currency: \"PLN\" },\n    { price: 213.57, currency: \"PLN\" },\n    { price: 12.57, currency: \"PLN\" }\n  ];\n</script>\n\n<style>\n  main {\n    text-align: center;\n    padding: 1em;\n    max-width: 240px;\n    margin: 0 auto;\n  }\n\n  h1 {\n    color: #ff3e00;\n    text-transform: uppercase;\n    font-size: 4em;\n    font-weight: 100;\n  }\n\n  @media (min-width: 640px) {\n    main {\n      max-width: none;\n    }\n  }\n</style>\n\n<svelte:head>\n  <link\n    rel=\"stylesheet\"\n    href=\"https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css\" />\n</svelte:head>\n<main>\n  <Sum {prices} />\n</main>\n"
-  ],
+  "sources": [],
+  "sourcesContent": [],
   "names": [],
-  "mappings": "AAiCE,IAAI,eAAC,CAAC,AACJ,UAAU,CAAE,MAAM,CAClB,OAAO,CAAE,GAAG,CACZ,SAAS,CAAE,KAAK,CAChB,MAAM,CAAE,CAAC,CAAC,IAAI,AAChB,CAAC,AASD,MAAM,AAAC,YAAY,KAAK,CAAC,AAAC,CAAC,AACzB,IAAI,eAAC,CAAC,AACJ,SAAS,CAAE,IAAI,AACjB,CAAC,AACH,CAAC"
+  "mappings": ""
 }

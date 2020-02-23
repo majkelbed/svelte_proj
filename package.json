@@ -16,7 +16,12 @@
     "svelte": "^3.0.0"
   },
   "dependencies": {
+    "@rollup/plugin-typescript": "^3.0.0",
+    "bootstrap": "^4.4.1",
+    "jquery": "^3.4.1",
+    "popper": "^1.0.1",
     "sirv-cli": "^0.4.4",
-    "sveltestrap": "^3.2.10"
+    "sveltestrap": "^3.2.10",
+    "typescript": "^3.8.2"
   }
 }
